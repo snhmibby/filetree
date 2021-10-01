@@ -7,27 +7,32 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"log"
+	"strings"
 
 	//"log"
 	"os"
 
-	G "github.com/AllenDang/giu"
-	I "github.com/AllenDang/imgui-go"
+	"path/filepath"
+
+	"github.com/AllenDang/giu"
+	"github.com/AllenDang/imgui-go"
 )
 
 var (
 	statCache       = make(map[string]fs.FileInfo)
 	dirCache        = make(map[string][]fs.FileInfo)
 	showHiddenFiles = false
-	selectedFile    string
-	currentDir      string
+	selectedFile    string //full path of file selected in fileTable
+	currentDir      string //full path of directory selected in dirTree
+	startDir        string //starting directory arg or cwd()
 )
 
 const (
 	timeFmt    = "02 Jan 06 15:04"
-	nodeFlags  = I.TreeNodeFlagsOpenOnArrow | I.TreeNodeFlagsOpenOnDoubleClick
-	leafFlags  = I.TreeNodeFlagsLeaf
-	tableFlags = I.TableFlags_ScrollX | I.TableFlags_ScrollY | I.TableFlags_Resizable | I.TableFlags_SizingStretchProp
+	nodeFlags  = imgui.TreeNodeFlagsOpenOnArrow | imgui.TreeNodeFlagsOpenOnDoubleClick
+	leafFlags  = imgui.TreeNodeFlagsLeaf
+	tableFlags = imgui.TableFlags_ScrollX | imgui.TableFlags_ScrollY | imgui.TableFlags_Resizable | imgui.TableFlags_SizingStretchProp
 )
 
 func mkSize(sz_ int64) string {
@@ -72,10 +77,7 @@ func readDir(path string) ([]fs.FileInfo, error) {
 		}
 		entry := make([]fs.FileInfo, len(direntry))
 		for i, f := range direntry {
-			childPath := path + "/" + f.Name()
-			if path == "/" {
-				childPath = "/" + f.Name()
-			}
+			childPath := filepath.Join(path, f.Name())
 
 			if f.Type()&fs.ModeSymlink == 0 {
 				entry[i], err = f.Info()
@@ -115,7 +117,7 @@ func getDirInfo(path string) (int, fs.FileInfo, []fs.FileInfo, bool) {
 	}
 
 	if path == currentDir {
-		flags |= I.TreeNodeFlagsSelected
+		flags |= imgui.TreeNodeFlagsSelected
 	}
 
 	return flags, info, entries, true
@@ -127,24 +129,25 @@ func dirTree(path string) {
 		return
 	}
 
-	I.PushStyleVarFloat(I.StyleVarIndentSpacing, 7)
-	open := I.TreeNodeV(info.Name(), flags)
-	if I.IsItemClicked(int(G.MouseButtonLeft)) {
+	if strings.HasPrefix(startDir, path) {
+		flags |= imgui.TreeNodeFlagsDefaultOpen
+	}
+
+	imgui.PushStyleVarFloat(imgui.StyleVarIndentSpacing, 7)
+	open := imgui.TreeNodeV(info.Name(), flags)
+	if imgui.IsItemClicked(int(giu.MouseButtonLeft)) {
 		currentDir = path
 	}
 	if open {
-		defer I.TreePop()
+		defer imgui.TreePop()
 		for _, e := range entries {
 			if e.IsDir() {
-				name := path + "/" + e.Name()
-				if path == "/" {
-					name = name[1:]
-				}
+				name := filepath.Join(path, e.Name())
 				dirTree(name)
 			}
 		}
 	}
-	I.PopStyleVar()
+	imgui.PopStyleVar()
 }
 
 func isHidden(entry fs.FileInfo) bool {
@@ -152,13 +155,14 @@ func isHidden(entry fs.FileInfo) bool {
 }
 
 func fileTable() {
-	if I.BeginTable("FSTable", 3, tableFlags, I.ContentRegionAvail(), 0) {
-		defer I.EndTable()
-		I.TableSetupColumn("Path", 0, 10, 0)
-		I.TableSetupColumn("Size", 0, 2, 0)
-		I.TableSetupColumn("Time", 0, 4, 0)
-		I.TableSetupScrollFreeze(1, 1)
-		I.TableHeadersRow()
+	if imgui.BeginTable("FSTable", 3, tableFlags, imgui.ContentRegionAvail(), 0) {
+		defer imgui.EndTable()
+		imgui.TableSetupColumn("Name", 0, 10, 0)
+		imgui.TableSetupColumn("Size", 0, 2, 0)
+		imgui.TableSetupColumn("Time", 0, 4, 0)
+		imgui.TableSetupScrollFreeze(1, 1)
+		imgui.TableHeadersRow()
+		//TODO: set up sorting
 
 		entries, err := readDir(currentDir)
 		if err != nil {
@@ -168,26 +172,23 @@ func fileTable() {
 			if e.IsDir() || isHidden(e) {
 				continue
 			}
-			path := currentDir + "/" + e.Name()
-			if currentDir == "/" {
-				path = path[1:]
-			}
+			path := filepath.Join(currentDir, e.Name())
 
-			I.TableNextRow(0, 0)
+			imgui.TableNextRow(0, 0)
 			if path == selectedFile {
-				color := I.GetColorU32(I.CurrentStyle().GetColor(I.StyleColorTextSelectedBg))
-				I.TableSetBgColor(I.TableBgTarget_RowBg0, uint32(color), -1)
+				color := imgui.GetColorU32(imgui.CurrentStyle().GetColor(imgui.StyleColorTextSelectedBg))
+				imgui.TableSetBgColor(imgui.TableBgTarget_RowBg0, uint32(color), -1)
 			}
 
-			I.TableNextColumn()
-			I.Text(e.Name())
-			if I.IsItemClicked(int(G.MouseButtonLeft)) {
+			imgui.TableNextColumn()
+			imgui.Text(e.Name())
+			if imgui.IsItemClicked(int(giu.MouseButtonLeft)) {
 				selectedFile = path
 			}
-			I.TableNextColumn()
-			I.Text(mkSize(e.Size()))
-			I.TableNextColumn()
-			I.Text(e.ModTime().Format(timeFmt))
+			imgui.TableNextColumn()
+			imgui.Text(mkSize(e.Size()))
+			imgui.TableNextColumn()
+			imgui.Text(e.ModTime().Format(timeFmt))
 		}
 	}
 }
@@ -201,23 +202,42 @@ func cancel() {
 	os.Exit(1)
 }
 
+func mkNavBar() {
+	width, _ := giu.GetAvailableRegion()
+	giu.InputText(&selectedFile).Size(width).Build()
+}
+
 func loop() {
-	G.SingleWindow().Layout(
-		G.Row(
-			G.Button("Select").OnClick(selectFile),
-			G.Button("Cancel").OnClick(cancel),
-			G.InputText(&selectedFile),
-			G.Checkbox("Show Hidden", &showHiddenFiles),
+	giu.SingleWindow().Layout(
+		giu.Custom(mkNavBar),
+		giu.Row(
+			giu.Button("Select").OnClick(selectFile),
+			giu.Button("Cancel").OnClick(cancel),
+			giu.Checkbox("Show Hidden", &showHiddenFiles),
 		),
-		G.SplitLayout(G.DirectionHorizontal, true, 200,
-			G.Custom(func() { dirTree("/") }),
-			G.Custom(fileTable),
+		giu.SplitLayout(giu.DirectionHorizontal, true, 200,
+			giu.Custom(func() { dirTree(filepath.FromSlash("/")) }),
+			giu.Custom(fileTable),
 		),
 	)
 }
 
 func main() {
-	G.SetDefaultFont("DejavuSansMono.ttf", 12)
-	w := G.NewMasterWindow("FileTree", 800, 600, 0)
+	if len(os.Args) == 1 {
+		startDir, _ = filepath.Abs(".")
+	} else {
+		startDir = os.Args[1]
+		st, err := statFile(startDir)
+		if err != nil {
+			log.Fatalf("starting directory '%s': %v\n", startDir, err)
+		}
+		if !st.IsDir() {
+			log.Fatalf("starting path '%s': not a directory\n", startDir)
+		}
+		startDir, _ = filepath.Abs(startDir)
+	}
+	currentDir = startDir
+	giu.SetDefaultFont("DejavuSansMono.ttf", 11)
+	w := giu.NewMasterWindow("FileTree", 800, 600, 0)
 	w.Run(loop)
 }

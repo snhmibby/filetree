@@ -16,6 +16,8 @@ import (
 )
 
 var (
+	statCache       = make(map[string]fs.FileInfo)
+	dirCache        = make(map[string][]fs.FileInfo)
 	showHiddenFiles = false
 	selectedFile    string
 	currentDir      string
@@ -23,7 +25,8 @@ var (
 
 const (
 	timeFmt    = "02 Jan 06 15:04"
-	leafFlags  = I.TreeNodeFlagsLeaf | I.TreeNodeFlagsNoTreePushOnOpen
+	nodeFlags  = I.TreeNodeFlagsOpenOnArrow | I.TreeNodeFlagsOpenOnDoubleClick
+	leafFlags  = I.TreeNodeFlagsLeaf
 	tableFlags = I.TableFlags_ScrollX | I.TableFlags_ScrollY | I.TableFlags_Resizable | I.TableFlags_SizingStretchProp
 )
 
@@ -47,120 +50,145 @@ func mkSize(sz_ int64) string {
 
 //statFile follows symbolic links
 func statFile(path string) (fs.FileInfo, error) {
-	var err error
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
+	st, ok := statCache[path]
+	if !ok {
+		var err error
+		st, err = os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		statCache[path] = st
 	}
 	return st, nil
 }
 
 //return a list of directory entries
-func readDir(path string) ([]string, error) {
-	entry, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	name := make([]string, len(entry))
-	for i, f := range entry {
-		var childPath string
-		if path == "/" {
-			childPath = "/" + f.Name()
-		} else {
-			childPath = path + "/" + f.Name()
+func readDir(path string) ([]fs.FileInfo, error) {
+	entry, ok := dirCache[path]
+	if !ok {
+		direntry, err := os.ReadDir(path)
+		if err != nil {
+			return nil, err
 		}
-		name[i] = childPath
-	}
-	return name, nil
-}
+		entry := make([]fs.FileInfo, len(direntry))
+		for i, f := range direntry {
+			childPath := path + "/" + f.Name()
+			if path == "/" {
+				childPath = "/" + f.Name()
+			}
 
-func fsWalk(path string) error {
-	f, err := statFile(path)
-	if err != nil {
-		return err
-	}
-	if f.Name()[0] == '.' && !showHiddenFiles {
-		return nil
-	}
-
-	if !f.IsDir() {
-		flags := leafFlags
-		if path == selectedFile {
-			flags |= I.TreeNodeFlagsSelected
-		}
-		I.TableNextRow(0, 0)
-		I.TableNextColumn()
-		I.TreeNodeV(f.Name(), flags)
-		if I.IsItemClicked(int(G.MouseButtonLeft)) {
-			selectedFile = path
-		}
-		I.TableNextColumn()
-		I.Text(mkSize(f.Size()))
-		I.TableNextColumn()
-		I.Text(f.ModTime().Format(timeFmt))
-	} else {
-		flags := 0
-		if path == selectedFile {
-			flags |= I.TreeNodeFlagsSelected
-		}
-		I.TableNextRow(0, 0)
-		I.TableNextRow(0, 0)
-		I.TableNextColumn()
-
-		open := I.TreeNodeV(f.Name(), flags)
-		if I.IsItemClicked(int(G.MouseButtonLeft)) {
-			selectedFile = path
-		}
-		I.TableNextColumn()
-		I.Text("--")
-		I.TableNextColumn()
-		I.Text(f.ModTime().Format(timeFmt))
-
-		if open {
-			defer I.TreePop()
-			entries, err := readDir(path)
+			if f.Type()&fs.ModeSymlink == 0 {
+				entry[i], err = f.Info()
+			} else {
+				entry[i], err = statFile(childPath)
+			}
 			if err != nil {
-				//log.Println(err)
+				return nil, err
 			}
-			var regular []string
-			for _, name := range entries {
-				st, err := statFile(name)
-				if err != nil {
-					//log.Println(err)
-					continue
-				}
-				if st.IsDir() {
-					err = fsWalk(name)
-					if err != nil {
-						//log.Println(err)
-						continue
-					}
-				} else {
-					regular = append(regular, name)
-				}
-			}
-			for _, c := range regular {
-				err := fsWalk(c)
-				if err != nil {
-					//log.Println(err)
-					continue
-				}
-			}
-
 		}
+		dirCache[path] = entry
 	}
-	return nil
+	return entry, nil
 }
 
-func mkFsTree() {
+func getDirInfo(path string) (int, fs.FileInfo, []fs.FileInfo, bool) {
+	info, err := statFile(path)
+	if err != nil {
+		return 0, nil, nil, false
+	}
+
+	entries, err := readDir(path)
+	if err != nil {
+		return 0, nil, nil, false
+	}
+
+	if info.Name()[0] == '.' && !showHiddenFiles {
+		return 0, nil, nil, false
+	}
+
+	flags := leafFlags
+	for _, e := range entries {
+		if e.IsDir() {
+			flags = nodeFlags
+			break
+		}
+	}
+
+	if path == currentDir {
+		flags |= I.TreeNodeFlagsSelected
+	}
+
+	return flags, info, entries, true
+}
+
+func dirTree(path string) {
+	flags, info, entries, ok := getDirInfo(path)
+	if !ok {
+		return
+	}
+
+	I.PushStyleVarFloat(I.StyleVarIndentSpacing, 7)
+	open := I.TreeNodeV(info.Name(), flags)
+	if I.IsItemClicked(int(G.MouseButtonLeft)) {
+		currentDir = path
+	}
+	if open {
+		defer I.TreePop()
+		for _, e := range entries {
+			if e.IsDir() {
+				name := path + "/" + e.Name()
+				if path == "/" {
+					name = name[1:]
+				}
+				dirTree(name)
+			}
+		}
+	}
+	I.PopStyleVar()
+}
+
+func isHidden(entry fs.FileInfo) bool {
+	return entry.Name()[0] == '.'
+}
+
+func fileTable() {
 	if I.BeginTable("FSTable", 3, tableFlags, I.ContentRegionAvail(), 0) {
 		defer I.EndTable()
-		I.TableSetupColumn("Path", 0, 70, 0)
-		I.TableSetupColumn("Size", 0, 15, 0)
-		I.TableSetupColumn("Time", 0, 15, 0)
+		I.TableSetupColumn("Path", 0, 10, 0)
+		I.TableSetupColumn("Size", 0, 2, 0)
+		I.TableSetupColumn("Time", 0, 4, 0)
 		I.TableSetupScrollFreeze(1, 1)
 		I.TableHeadersRow()
-		fsWalk("/")
+
+		entries, err := readDir(currentDir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() || isHidden(e) {
+				continue
+			}
+			path := currentDir + "/" + e.Name()
+			if currentDir == "/" {
+				path = path[1:]
+			}
+
+			I.TableNextRow(0, 0)
+			if path == selectedFile {
+				color := I.GetColorU32(I.CurrentStyle().GetColor(I.StyleColorTextSelectedBg))
+				I.TableSetBgColor(I.TableBgTarget_RowBg0, uint32(color), -1)
+			}
+
+			I.TableNextColumn()
+			I.Text(e.Name())
+			if I.IsItemClicked(int(G.MouseButtonLeft)) {
+				selectedFile = path
+			}
+			I.TableNextColumn()
+			I.Text(mkSize(e.Size()))
+			I.TableNextColumn()
+			I.Text(e.ModTime().Format(timeFmt))
+		}
 	}
 }
 
@@ -181,11 +209,15 @@ func loop() {
 			G.InputText(&selectedFile),
 			G.Checkbox("Show Hidden", &showHiddenFiles),
 		),
-		G.Child().Layout(G.Custom(mkFsTree)),
+		G.SplitLayout(G.DirectionHorizontal, true, 200,
+			G.Custom(func() { dirTree("/") }),
+			G.Custom(fileTable),
+		),
 	)
 }
 
 func main() {
+	G.SetDefaultFont("DejavuSansMono.ttf", 12)
 	w := G.NewMasterWindow("FileTree", 800, 600, 0)
 	w.Run(loop)
 }

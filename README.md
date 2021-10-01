@@ -8,5 +8,6 @@ The path of the selected file will be written to stdout.
 ![A beautiful screenshot](./screenshot.png)
 
 ## Why?
-Written to learn the imgui library a bit.
-Also I needed a file selection dialog for imgui :X
+To learn the imgui library a bit.
+
+And I needed a file selection dialog for imgui :X

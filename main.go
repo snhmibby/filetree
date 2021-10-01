@@ -18,6 +18,7 @@ import (
 var (
 	showHiddenFiles = false
 	selectedFile    string
+	currentDir      string
 )
 
 const (
@@ -62,9 +63,11 @@ func readDir(path string) ([]string, error) {
 	}
 	name := make([]string, len(entry))
 	for i, f := range entry {
-		childPath := path + "/" + f.Name()
+		var childPath string
 		if path == "/" {
 			childPath = "/" + f.Name()
+		} else {
+			childPath = path + "/" + f.Name()
 		}
 		name[i] = childPath
 	}

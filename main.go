@@ -134,6 +134,8 @@ func dirTree(path string) {
 	}
 
 	imgui.PushStyleVarFloat(imgui.StyleVarIndentSpacing, 7)
+	defer imgui.PopStyleVar()
+
 	open := imgui.TreeNodeV(info.Name(), flags)
 	if imgui.IsItemClicked(int(giu.MouseButtonLeft)) {
 		currentDir = path
@@ -147,7 +149,6 @@ func dirTree(path string) {
 			}
 		}
 	}
-	imgui.PopStyleVar()
 }
 
 func isHidden(entry fs.FileInfo) bool {
@@ -184,6 +185,9 @@ func fileTable() {
 			imgui.Text(e.Name())
 			if imgui.IsItemClicked(int(giu.MouseButtonLeft)) {
 				selectedFile = path
+				if imgui.IsMouseDoubleClicked(int(giu.MouseButtonLeft)) {
+					selectFile()
+				}
 			}
 			imgui.TableNextColumn()
 			imgui.Text(mkSize(e.Size()))

@@ -2,18 +2,14 @@ package main
 
 //little program to display a file-system tree and basic info
 //once a file-path is selected, print it on stdout
-//doubles as a stress test for the filesystem readdir & stat functions :)
 
 import (
 	"fmt"
 	"io/fs"
 	"log"
-	"strings"
-
-	//"log"
 	"os"
-
 	"path/filepath"
+	"strings"
 
 	"github.com/AllenDang/giu"
 	"github.com/AllenDang/imgui-go"
@@ -82,6 +78,8 @@ func readDir(path string) ([]fs.FileInfo, error) {
 			if f.Type()&fs.ModeSymlink == 0 {
 				entry[i], err = f.Info()
 			} else {
+				//default from ReadDir is lstat, which doesn't follow symlinks :(
+				//stat it again using os.Stat
 				entry[i], err = statFile(childPath)
 			}
 			if err != nil {
@@ -156,6 +154,7 @@ func isHidden(entry fs.FileInfo) bool {
 }
 
 func fileTable() {
+	imgui.Text(currentDir)
 	if imgui.BeginTable("FSTable", 3, tableFlags, imgui.ContentRegionAvail(), 0) {
 		defer imgui.EndTable()
 		imgui.TableSetupColumn("Name", 0, 10, 0)
@@ -198,6 +197,9 @@ func fileTable() {
 }
 
 func selectFile() {
+	if !filepath.IsAbs(selectedFile) {
+		selectedFile = filepath.Join(currentDir, selectedFile)
+	}
 	fmt.Println(selectedFile)
 	os.Exit(0)
 }
@@ -214,14 +216,19 @@ func mkNavBar() {
 func loop() {
 	giu.SingleWindow().Layout(
 		giu.Custom(mkNavBar),
+		giu.Custom(func() {
+			w, h := giu.GetAvailableRegion()
+			giu.Child().Layout(
+				giu.SplitLayout(giu.DirectionHorizontal, true, 200,
+					giu.Custom(func() { dirTree(filepath.FromSlash("/")) }),
+					giu.Custom(fileTable),
+				),
+			).Border(false).Size(w, h-25).Build()
+		}),
 		giu.Row(
-			giu.Button("Select").OnClick(selectFile),
-			giu.Button("Cancel").OnClick(cancel),
 			giu.Checkbox("Show Hidden", &showHiddenFiles),
-		),
-		giu.SplitLayout(giu.DirectionHorizontal, true, 200,
-			giu.Custom(func() { dirTree(filepath.FromSlash("/")) }),
-			giu.Custom(fileTable),
+			giu.Button("Cancel").OnClick(cancel),
+			giu.Button("Select").OnClick(selectFile),
 		),
 	)
 }

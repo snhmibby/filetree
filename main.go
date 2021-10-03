@@ -248,7 +248,7 @@ func main() {
 		startDir, _ = filepath.Abs(startDir)
 	}
 	currentDir = startDir
-	giu.SetDefaultFont("DejavuSansMono.ttf", 11)
+	giu.SetDefaultFont("DejavuSansMono.ttf", 12)
 	w := giu.NewMasterWindow("FileTree", 800, 600, 0)
 	w.Run(loop)
 }

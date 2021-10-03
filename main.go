@@ -217,7 +217,14 @@ func loop() {
 	giu.SingleWindow().Layout(
 		giu.Custom(mkNavBar),
 		giu.Custom(func() {
+			//use a child frame to block the lists going off-screen
+			//at the bottom of the screen is a row of buttons and such
 			w, h := giu.GetAvailableRegion()
+			//adjust for buttonrow height
+			_, spacing := giu.GetItemSpacing()
+			_, padding := giu.GetFramePadding()
+			_, buttonH := giu.CalcTextSize("F")
+			h -= buttonH + 2*padding + spacing
 			giu.Child().Layout(
 				giu.SplitLayout(giu.DirectionHorizontal, true, 200,
 					giu.Custom(func() { dirTree(filepath.FromSlash("/")) }),

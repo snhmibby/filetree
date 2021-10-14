@@ -25,10 +25,11 @@ var (
 )
 
 const (
-	timeFmt    = "02 Jan 06 15:04"
-	nodeFlags  = imgui.TreeNodeFlagsOpenOnArrow | imgui.TreeNodeFlagsOpenOnDoubleClick
-	leafFlags  = imgui.TreeNodeFlagsLeaf
-	tableFlags = imgui.TableFlags_ScrollX | imgui.TableFlags_ScrollY | imgui.TableFlags_Resizable | imgui.TableFlags_SizingStretchProp
+	timeFmt     = "02 Jan 06 15:04"
+	nodeFlags   = imgui.TreeNodeFlagsOpenOnArrow | imgui.TreeNodeFlagsOpenOnDoubleClick | imgui.TreeNodeFlagsSpanFullWidth
+	leafFlags   = imgui.TreeNodeFlagsLeaf
+	tableFlags  = imgui.TableFlags_ScrollX | imgui.TableFlags_ScrollY | imgui.TableFlags_Resizable | imgui.TableFlags_SizingStretchProp
+	selectFlags = imgui.SelectableFlagsAllowDoubleClick | imgui.SelectableFlagsSpanAllColumns
 )
 
 func mkSize(sz_ int64) string {
@@ -175,14 +176,8 @@ func fileTable() {
 			path := filepath.Join(currentDir, e.Name())
 
 			imgui.TableNextRow(0, 0)
-			if path == selectedFile {
-				color := imgui.GetColorU32(imgui.CurrentStyle().GetColor(imgui.StyleColorTextSelectedBg))
-				imgui.TableSetBgColor(imgui.TableBgTarget_RowBg0, uint32(color), -1)
-			}
-
 			imgui.TableNextColumn()
-			imgui.Text(e.Name())
-			if imgui.IsItemClicked(int(giu.MouseButtonLeft)) {
+			if imgui.SelectableV(e.Name(), path == selectedFile, selectFlags, imgui.Vec2{}) {
 				selectedFile = path
 				if imgui.IsMouseDoubleClicked(int(giu.MouseButtonLeft)) {
 					selectFile()
@@ -230,7 +225,7 @@ func loop() {
 					giu.Custom(func() { dirTree(filepath.FromSlash("/")) }),
 					giu.Custom(fileTable),
 				),
-			).Border(false).Size(w, h-25).Build()
+			).Border(false).Size(w, h).Build()
 		}),
 		giu.Row(
 			giu.Checkbox("Show Hidden", &showHiddenFiles),
